@@ -670,6 +670,12 @@ static JSValue js_cs_invoke(JSContext* ctx, JSValueConst this_val, int argc, JSV
     if (res.error_code != 0) {
         const char* msg = res.error_msg ? res.error_msg : "C# invoke error";
         result = JS_ThrowInternalError(ctx, "%s", msg);
+        if (res.error_msg) {
+            // C# allocated this via Marshal.StringToCoTaskMemUTF8 (== malloc on
+            // POSIX / matching heap on Windows). Free it now that QuickJS has
+            // copied the message into the thrown error.
+            free((void*)res.error_msg);
+        }
         goto cleanup;
     }
 
