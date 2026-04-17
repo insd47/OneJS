@@ -454,9 +454,13 @@ public static partial class QuickJSNative {
             string typeName = PtrToStringUtf8(reqPtr->typeName) ?? "<unknown>";
             string memberName = PtrToStringUtf8(reqPtr->memberName) ?? "<unknown>";
 
+            string msg =
+                $"{reqPtr->callKind} on {typeName}.{memberName} failed: " +
+                $"{innerEx.GetType().Name}: {innerEx.Message}";
+            resPtr->errorMsg = StringToUtf8(msg);
+
             Debug.LogError(
-                $"[QuickJS Invoke Error] {reqPtr->callKind} on {typeName}.{memberName} failed:\n" +
-                $"  Exception: {innerEx.GetType().Name}: {innerEx.Message}\n" +
+                $"[QuickJS Invoke Error] {msg}\n" +
                 $"  Stack trace:\n{innerEx.StackTrace}");
         } catch (Exception ex) {
             resPtr->errorCode = 1;
@@ -465,9 +469,13 @@ public static partial class QuickJSNative {
             string typeName = PtrToStringUtf8(reqPtr->typeName) ?? "<unknown>";
             string memberName = PtrToStringUtf8(reqPtr->memberName) ?? "<unknown>";
 
+            string msg =
+                $"{reqPtr->callKind} on {typeName}.{memberName} failed: " +
+                $"{ex.GetType().Name}: {ex.Message}";
+            resPtr->errorMsg = StringToUtf8(msg);
+
             Debug.LogError(
-                $"[QuickJS Invoke Error] {reqPtr->callKind} on {typeName}.{memberName} failed:\n" +
-                $"  Exception: {ex.GetType().Name}: {ex.Message}\n" +
+                $"[QuickJS Invoke Error] {msg}\n" +
                 $"  Stack trace:\n{ex.StackTrace}");
         } finally {
             // Restore previous context pointer
