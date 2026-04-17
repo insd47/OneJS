@@ -52,6 +52,15 @@ public static partial class QuickJSNative {
         Debug.Log("[QuickJS] " + msg);
     }
 
+    // Every errorCode=1 path both Debug.LogErrors *and* writes the same message
+    // into resPtr->errorMsg so the JS-side InternalError carries something more
+    // specific than the generic "C# invoke error" fallback.
+    static unsafe void ReportError(InteropInvokeResult* resPtr, string msg) {
+        resPtr->errorCode = 1;
+        resPtr->errorMsg = StringToUtf8(msg);
+        Debug.LogError("[QuickJS] " + msg);
+    }
+
     // MARK: Dispatch
     [MonoPInvokeCallback(typeof(CsInvokeCallback))]
     static unsafe void DispatchFromJs(IntPtr ctxPtr, InteropInvokeRequest* reqPtr,
@@ -120,8 +129,7 @@ public static partial class QuickJSNative {
             // RegisterExtensionType: scan and cache extension methods from a static class
             if (reqPtr->callKind == InteropInvokeCallKind.RegisterExtensionType) {
                 if (type == null) {
-                    resPtr->errorCode = 1;
-                    Debug.LogError("[QuickJS] Extension type not found: " + typeName);
+                    ReportError(resPtr, "Extension type not found: " + typeName);
                     return;
                 }
                 RegisterExtensionType(type);
@@ -131,14 +139,12 @@ public static partial class QuickJSNative {
             // MakeGenericType: List`1 + [Int32] => List<Int32>
             if (reqPtr->callKind == InteropInvokeCallKind.MakeGenericType) {
                 if (type == null) {
-                    resPtr->errorCode = 1;
-                    Debug.LogError("[QuickJS] Generic type definition not found: " + typeName);
+                    ReportError(resPtr, "Generic type definition not found: " + typeName);
                     return;
                 }
 
                 if (!type.IsGenericTypeDefinition) {
-                    resPtr->errorCode = 1;
-                    Debug.LogError("[QuickJS] Type is not a generic definition: " + typeName);
+                    ReportError(resPtr, "Type is not a generic definition: " + typeName);
                     return;
                 }
 
@@ -147,15 +153,13 @@ public static partial class QuickJSNative {
                 for (int i = 0; i < argCount; i++) {
                     string typeArgName = InteropValueToString(argsPtr[i]);
                     if (string.IsNullOrEmpty(typeArgName)) {
-                        resPtr->errorCode = 1;
-                        Debug.LogError($"[QuickJS] Invalid type argument at index {i}");
+                        ReportError(resPtr, $"Invalid type argument at index {i}");
                         return;
                     }
 
                     Type typeArg = ResolveType(typeArgName);
                     if (typeArg == null) {
-                        resPtr->errorCode = 1;
-                        Debug.LogError("[QuickJS] Type argument not found: " + typeArgName);
+                        ReportError(resPtr, "Type argument not found: " + typeArgName);
                         return;
                     }
                     typeArgs[i] = typeArg;
@@ -173,8 +177,7 @@ public static partial class QuickJSNative {
                     resPtr->returnValue.str = StringToUtf8(constructedTypeName);
                     return;
                 } catch (Exception ex) {
-                    resPtr->errorCode = 1;
-                    Debug.LogError($"[QuickJS] Failed to make generic type: {ex.Message}");
+                    ReportError(resPtr, $"Failed to make generic type: {ex.Message}");
                     return;
                 }
             }
@@ -200,8 +203,7 @@ public static partial class QuickJSNative {
             // Constructor
             if (reqPtr->callKind == InteropInvokeCallKind.Ctor) {
                 if (type == null) {
-                    resPtr->errorCode = 1;
-                    Debug.LogError("[QuickJS] Type not found for ctor: " + typeName);
+                    ReportError(resPtr, "Type not found for ctor: " + typeName);
                     return;
                 }
 
@@ -236,14 +238,12 @@ public static partial class QuickJSNative {
                     }
                 }
 
-                resPtr->errorCode = 1;
-                Debug.LogError($"[QuickJS] No matching ctor for {typeName} with {args.Length} args");
+                ReportError(resPtr, $"No matching ctor for {typeName} with {args.Length} args");
                 return;
             }
 
             if (type == null) {
-                resPtr->errorCode = 1;
-                Debug.LogError("[QuickJS] Type not found: " + typeName);
+                ReportError(resPtr, "Type not found: " + typeName);
                 return;
             }
 
@@ -291,8 +291,7 @@ public static partial class QuickJSNative {
                             }
                         }
 
-                        resPtr->errorCode = 1;
-                        Debug.LogError("[QuickJS] Method not found: " + type.FullName + "." + memberName);
+                        ReportError(resPtr, "Method not found: " + type.FullName + "." + memberName);
                         return;
                     }
 
@@ -347,8 +346,7 @@ public static partial class QuickJSNative {
                             return;
                         }
 
-                        resPtr->errorCode = 1;
-                        Debug.LogError("[QuickJS] Property not found: " + type.FullName + "." + memberName);
+                        ReportError(resPtr, "Property not found: " + type.FullName + "." + memberName);
                         return;
                     }
 
@@ -370,9 +368,8 @@ public static partial class QuickJSNative {
                             return;
                         }
 
-                        resPtr->errorCode = 1;
-                        Debug.LogError("[QuickJS] Property or field not found (set): " + type.FullName +
-                                       "." + memberName);
+                        ReportError(resPtr,
+                            "Property or field not found (set): " + type.FullName + "." + memberName);
                         return;
                     }
 
@@ -386,8 +383,7 @@ public static partial class QuickJSNative {
                 case InteropInvokeCallKind.GetField: {
                     FieldInfo field = FindFieldCached(type, memberName, isStatic);
                     if (field == null) {
-                        resPtr->errorCode = 1;
-                        Debug.LogError("[QuickJS] Field not found: " + type.FullName + "." + memberName);
+                        ReportError(resPtr, "Field not found: " + type.FullName + "." + memberName);
                         return;
                     }
 
@@ -399,9 +395,7 @@ public static partial class QuickJSNative {
                 case InteropInvokeCallKind.SetField: {
                     FieldInfo field = FindFieldCached(type, memberName, isStatic);
                     if (field == null) {
-                        resPtr->errorCode = 1;
-                        Debug.LogError("[QuickJS] Field not found (set): " + type.FullName + "." +
-                                       memberName);
+                        ReportError(resPtr, "Field not found (set): " + type.FullName + "." + memberName);
                         return;
                     }
 
@@ -441,15 +435,13 @@ public static partial class QuickJSNative {
                 }
 
                 default:
-                    resPtr->errorCode = 1;
-                    Debug.LogError("[QuickJS] Unsupported call kind: " + reqPtr->callKind);
+                    ReportError(resPtr, "Unsupported call kind: " + reqPtr->callKind);
                     return;
             }
         } catch (TargetInvocationException tie) {
             // Unwrap reflection exceptions to get the actual error
             // TargetInvocationException wraps the real exception from reflected method calls
             var innerEx = tie.InnerException ?? tie;
-            resPtr->errorCode = 1;
 
             string typeName = PtrToStringUtf8(reqPtr->typeName) ?? "<unknown>";
             string memberName = PtrToStringUtf8(reqPtr->memberName) ?? "<unknown>";
@@ -457,14 +449,9 @@ public static partial class QuickJSNative {
             string msg =
                 $"{reqPtr->callKind} on {typeName}.{memberName} failed: " +
                 $"{innerEx.GetType().Name}: {innerEx.Message}";
-            resPtr->errorMsg = StringToUtf8(msg);
-
-            Debug.LogError(
-                $"[QuickJS Invoke Error] {msg}\n" +
-                $"  Stack trace:\n{innerEx.StackTrace}");
+            ReportError(resPtr, msg);
+            Debug.LogError("  Stack trace:\n" + innerEx.StackTrace);
         } catch (Exception ex) {
-            resPtr->errorCode = 1;
-
             // Preserve full exception context
             string typeName = PtrToStringUtf8(reqPtr->typeName) ?? "<unknown>";
             string memberName = PtrToStringUtf8(reqPtr->memberName) ?? "<unknown>";
@@ -472,11 +459,8 @@ public static partial class QuickJSNative {
             string msg =
                 $"{reqPtr->callKind} on {typeName}.{memberName} failed: " +
                 $"{ex.GetType().Name}: {ex.Message}";
-            resPtr->errorMsg = StringToUtf8(msg);
-
-            Debug.LogError(
-                $"[QuickJS Invoke Error] {msg}\n" +
-                $"  Stack trace:\n{ex.StackTrace}");
+            ReportError(resPtr, msg);
+            Debug.LogError("  Stack trace:\n" + ex.StackTrace);
         } finally {
             // Restore previous context pointer
             _currentContextPtr = prevContext;
