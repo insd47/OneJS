@@ -650,8 +650,28 @@ public static partial class QuickJSNative {
     // MARK: Type Conversion (updated)
     static readonly ConcurrentDictionary<(Type, Type), MethodInfo> _implicitOpCache = new();
 
+    // Cache for the `StyleX(StyleKeyword)` ctor on UI Toolkit Style* value types so
+    // we can turn JS `null`/`undefined` into `new StyleX(StyleKeyword.Null)` — i.e.
+    // "clear the inline override" — when a property setter expects a struct.
+    // A null entry means "no such ctor; leave null-to-struct as a hard error".
+    static readonly ConcurrentDictionary<Type, ConstructorInfo> _styleKeywordNullCtorCache = new();
+    static readonly object[] _styleKeywordNullArgs = { UnityEngine.UIElements.StyleKeyword.Null };
+
     internal static object ConvertToTargetType(object value, Type targetType) {
-        if (value == null) return null;
+        if (value == null) {
+            // JS `undefined` / `null` assigned to a UI Toolkit Style<T> struct property
+            // means "clear the inline override". PropertyInfo.SetValue can't take null
+            // for a value-type property, so we synthesize `new StyleX(StyleKeyword.Null)`.
+            if (targetType.IsValueType &&
+                Nullable.GetUnderlyingType(targetType) == null &&
+                targetType.Namespace == "UnityEngine.UIElements" &&
+                targetType.Name.StartsWith("Style")) {
+                var ctor = _styleKeywordNullCtorCache.GetOrAdd(targetType,
+                    static t => t.GetConstructor(new[] { typeof(UnityEngine.UIElements.StyleKeyword) }));
+                if (ctor != null) return ctor.Invoke(_styleKeywordNullArgs);
+            }
+            return null;
+        }
         EnsureStructsInitialized();
 
         var sourceType = value.GetType();
